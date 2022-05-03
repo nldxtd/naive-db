@@ -1,0 +1,361 @@
+#![allow(clippy::all)]
+
+use crate::ast::*;
+use chrono::NaiveDate;
+use lalrpop_util::ParseError;
+
+#[LALR]
+grammar;
+
+OptList<T, Sep>: Vec<T> = {
+    <mut v:(<T> Sep)*> <e:T?> => match e {
+        Some(e) => {
+            v.push(e);
+            v
+        },
+        None => v,
+    },
+};
+
+List<T, Sep>: Vec<T> = {
+    <mut v:(<T> Sep)*> <e:T> => {
+        v.push(e);
+        v
+    },
+};
+
+Comma<T> = List<T, ",">;
+Semi<T> = <(<T> ";")+>;
+
+ne: &'input str = {
+    r"!=",
+    r"<>",
+};
+pub identifier: String = identifier_pattern => <>.to_string();
+pub string_literal: String = string_pattern => <>.trim_matches('\'').replace("\\'", "'");
+pub int_literal: i32 = int_pattern => <>.parse().unwrap();
+pub float_literal: f32 = float_pattern => <>.parse().unwrap();
+pub quoted_table_name: String = table_name_pattern => <>.trim_matches('`').to_string();
+
+match {
+    r#"'(\\'|\n|\r|"|\x00|\\|[^'\\])*'"# => string_pattern,
+    r"`[a-zA-Z0-9$_ ]*[a-zA-Z0-9$_]`" => table_name_pattern,
+    r"[+-]?[0-9]*\.[0-9]+([eE][-+]?[0-9]+)?" => float_pattern,
+    r"[+-]?[0-9]+" => int_pattern,
+    r">=" => ge,
+    r">" => gt,
+    r"<=" => le,
+    r"<" => lt,
+    r"=" => eq,
+    r"(?i)like" => like,
+    r"(?i)create" => create,
+    r"(?i)table" => table,
+    r"(?i)tables" => tables,
+    r"(?i)database" => database,
+    r"(?i)databases" => databases,
+    r"(?i)drop" => drop,
+    r"(?i)use" => use_,
+    r"(?i)update" => update,
+    r"(?i)show" => show,
+    r"(?i)insert" => insert,
+    r"(?i)into" => into,
+    r"(?i)select" => select,
+    r"(?i)delete" => delete,
+    r"(?i)from" => from,
+    r"(?i)set" => set,
+    r"(?i)where" => where_,
+    r"(?i)primary" => primary,
+    r"(?i)foreign" => foreign,
+    r"(?i)references" => references,
+    r"(?i)key" => key,
+    r"(?i)index" => index,
+    r"(?i)indexes" => indexes,
+    r"(?i)default" => default,
+    r"(?i)check" => check,
+    r"(?i)not" => not,
+    r"(?i)null" => null,
+    r"(?i)and" => and,
+    r"(?i)or" => or,
+    r"(?i)int" => int,
+    r"(?i)integer" => integer,
+    r"(?i)double" => double,
+    r"(?i)float" => float,
+    r"(?i)char" => char_,
+    r"(?i)varchar" => varchar,
+    r"(?i)date" => date,
+    r"(?i)join" => join,
+    r"(?i)inner" => inner,
+    r"(?i)outer" => outer,
+    r"(?i)full" => full,
+    r"(?i)left" => left,
+    r"(?i)right" => right,
+    r"(?i)values" => values,
+    r"(?i)asc" => asc,
+    r"(?i)desc" => desc,
+    r"(?i)order" => order,
+    r"(?i)by" => by,
+    r"(?i)unique" => unique,
+    r"(?i)in" => in_,
+    r"(?i)is" => is,
+    r"(?i)count" => count,
+    r"(?i)sum" => sum,
+    r"(?i)min" => min,
+    r"(?i)max" => max,
+    r"(?i)avg" => avg,
+    r"(?i)on" => on,
+    r"(?i)using" => using,
+    r"(?i)true" => true_,
+    r"(?i)false" => false_,
+    r"(?i)group" => group,
+    r"(?i)distinct" => distinct,
+    r"(?i)exit" => exit,
+    r"(?i)if" => if_,
+    r"(?i)exists" => exists,
+    r"(?i)constraint" => constraint,
+    r"(?i)limit" => limit,
+    r"(?i)offset" => offset,
+    r"(?i)alter" => alter,
+    r"(?i)add" => add,
+    r"--[^\n\r]*[\n\r]*" => { },
+    r"\s*" => { },
+} else {
+    r"[a-zA-Z$_][a-zA-Z0-9$_]*|[0-9][a-zA-Z0-9$_]+" => identifier_pattern,
+    _,
+}
+
+pub SqlStmts: Vec<SqlStmt> = Semi<SqlStmt>;
+
+pub SingleSql = <SqlStmt> ";"?;
+
+SqlStmt: SqlStmt = {
+    CreateDB => SqlStmt::CreateDB(Box::new(<>)),
+    CreateTB => SqlStmt::CreateTB(Box::new(<>)),
+    CreateIdx => SqlStmt::CreateIdx(Box::new(<>)),
+    DropDB => SqlStmt::DropDB(Box::new(<>)),
+    DropTB => SqlStmt::DropTB(Box::new(<>)),
+    DropIdx => SqlStmt::DropIdx(Box::new(<>)),
+    Select => SqlStmt::Select(Box::new(<>)),
+    Insert => SqlStmt::Insert(Box::new(<>)),
+    Update => SqlStmt::Update(Box::new(<>)),
+    Delete => SqlStmt::Delete(Box::new(<>)),
+    UseDB => SqlStmt::UseDB(Box::new(<>)),
+    Show => SqlStmt::Show(Box::new(<>)),
+    Desc => SqlStmt::Desc(Box::new(<>)),
+    Alter => SqlStmt::Alter(Box::new(<>)),
+};
+
+Alter: Alter = {
+    AddPrimary => Alter::AddPrimary(<>),
+    AddForeign => Alter::AddForeign(<>),
+    DropForeign => Alter::DropForeign(<>),
+    AltAddIdx => Alter::CreateIdx(<>),
+    AltDropIdx => Alter::DropIdx(<>),
+};
+
+AddPrimary: AddPrimary =
+    alter table <table_name:table_name> add primary key "(" <cols:Comma<identifier>> ")"
+        => AddPrimary {<>};
+
+AddForeign: AddForeign =
+    alter table <table_name:table_name> add constraint
+    foreign key "(" <cols:Comma<identifier>> ")"
+    references <ftable_name:table_name> "(" <fcols:Comma<identifier>> ")"
+        => AddForeign {<>};
+
+DropForeign: DropForeign =
+    alter table <table_name:table_name> "(" <cols:Comma<identifier>> ")"
+    drop foreign key <ftable_name:table_name> "(" <fcols:Comma<identifier>> ")"
+        => DropForeign {<>};
+
+AltAddIdx: CreateIdx =
+    alter table <table_name:table_name> add index "(" <fields:Comma<identifier>> ")"
+        => CreateIdx {<>};
+
+AltDropIdx: DropIdx =
+    alter table <table_name:table_name> drop index "(" <cols:Comma<identifier>> ")"
+        => DropIdx {<>};
+
+CreateDB: CreateDB = create database <identifier> => CreateDB(<>);
+
+CreateTB: CreateTB =
+    create table <name:table_name> "(" <fields:Comma<CreateTBField>> ")" 
+        => CreateTB { name, fields };
+
+CreateIdx: CreateIdx =
+    create index on <table_name:table_name> "(" <fields:Comma<KeyPart>> ")" => CreateIdx {<>};
+
+DropDB: DropDB = drop database <db_name> => DropDB(<>);
+
+DropTB: DropTB = drop table <table_name> => DropTB(<>);
+
+DropIdx: DropIdx = drop index <cols:(Comma<identifier>)> on <table_name:table_name> => DropIdx {<>};
+
+Select: Select =
+    select <selectors:Selectors> from <from:Comma<table_name>> <condition:WhereClause?> <group_by:(group by <ColumnRef>)?> <lno:LimitAndOffset>
+        => Select {
+            selectors, from, condition, group_by, limit: lno.0, offset: lno.1
+        };
+
+LimitAndOffset: (Option<i32>, Option<i32>) = {
+    limit <int_literal> => (Some(<>), None),
+    limit <limit:int_literal> offset <offset:int_literal> => (Some(limit), Some(offset)),
+    () => (None, None),
+};
+
+WhereClause: CondExpr = where_ <ConditionExpr>;
+
+Selectors: Selectors = {
+    "*" => Selectors::All,
+    Comma<Selector> => Selectors::Part(<>),
+};
+
+Selector: SingleSelector = {
+    ColumnRef => SingleSelector::Single(<>),
+    <aggregator> "(" <ColumnRef> ")" => SingleSelector::Aggregate(<>),
+    count "(" "*" ")" => SingleSelector::CountAll,
+};
+
+#[inline]
+aggregator: Aggregator = {
+    count => Aggregator::COUNT,
+    avg => Aggregator::AVG,
+    min => Aggregator::MIN,
+    max => Aggregator::MAX,
+    sum => Aggregator::SUM,
+};
+
+Insert: Insert = insert into? <table_name:table_name> values <values:Comma<ValueList>> => Insert {<>};
+
+ValueList: Vec<Expr> = "(" <Comma<Term>> ")";
+
+Update: Update =
+    update <table_name:table_name> set <column:ColumnRef> eq <value:Expr> <condition:WhereClause> => Update {<>};
+
+Delete: Delete =
+    delete from <table_name:table_name> <condition:WhereClause> => Delete {<>};
+
+UseDB: UseDB = {
+    use_ database <db_name> => UseDB(<>),
+    use_ <db_name> => UseDB(<>),
+};
+
+Show: Show = {
+    show tables => Show::Tables,
+    show databases => Show::Databases,
+    show indexes => Show::Indices,
+};
+
+Desc: Desc = desc <table_name> => Desc(<>);
+
+ConditionExpr: CondExpr = ConditionOr;
+
+ConditionOr: CondExpr = {
+    <l:ConditionOr> or <r:ConditionAnd> => CondExpr::Binary(Box::new(l), LogicOp::OR, Box::new(r)),
+    ConditionAnd,
+};
+
+ConditionAnd: CondExpr = {
+    <l:ConditionAnd> and <r:ConditionTerm> => CondExpr::Binary(Box::new(l), LogicOp::AND, Box::new(r)),
+    ConditionTerm,
+};
+
+ConditionTerm: CondExpr = {
+    not <ConditionTerm> => CondExpr::Not(Box::new(<>)),
+    <l:Expr> <op:compare_op> <r:Expr> => CondExpr::Term(CalcExpr::Compare(Box::new(l), op, Box::new(r))),
+    <expr:Expr> is null => CondExpr::Term(CalcExpr::IsNull(Box::new(<>))),
+    <expr:Expr> in_ "(" <l:Comma<Expr>> ")" => CondExpr::Term(CalcExpr::In(Box::new(expr), l)),
+    true_ => CondExpr::True,
+    false_ => CondExpr::False,
+    "(" <ConditionExpr> ")",
+};
+
+compare_op: CompareOp = {
+    eq => CompareOp::EQ,
+    ne => CompareOp::NE,
+    ge => CompareOp::GE,
+    gt => CompareOp::GT,
+    le => CompareOp::LE,
+    lt => CompareOp::LT,
+    like => CompareOp::LIKE,
+    not like => CompareOp::NOTLIKE,
+};
+
+Expr: Expr = {
+    <l:Expr> <op:expr_op> <r:Factor> => Expr::Binary(Box::new(l), op, Box::new(r)),
+    Factor,
+};
+
+expr_op: BinaryOp = {
+    "+" => BinaryOp::ADD,
+    "-" => BinaryOp::SUB,
+};
+
+Factor: Expr = {
+    <l:Factor> <op:factor_op> <r:Term> => Expr::Binary(Box::new(l), op, Box::new(r)),
+    Term,
+};
+
+factor_op: BinaryOp = {
+    "*" => BinaryOp::MUL,
+    "/" => BinaryOp::DIV,
+};
+
+Term: Expr = {
+    ColumnRef => Expr::ColumnRef(<>),
+    int_literal => Expr::IntLit(<>),
+    float_literal => Expr::FloatLit(<>),
+    string_literal => Expr::StringLit(<>),
+    null => Expr::Null,
+    "(" <Expr> ")",
+}
+
+CreateTBField: CreateTBField = {
+    NamedTBConstraint => CreateTBField::Constraint(<>),
+    ColumnDef => CreateTBField::Column(<>),
+};
+
+NamedTBConstraint: NamedTBConstraint =
+    <name:(constraint (<identifier>)?)?> <constraint:TBConstraint> => NamedTBConstraint { name: name.map(|(_, r)| r).flatten(), constraint };
+
+TBConstraint: TBConstraint = {
+    primary key "(" <Comma<KeyPart>> ")" => TBConstraint::Primary(<>),
+    unique "(" <Comma<KeyPart>> ")" => TBConstraint::Unique(<>),
+    check "(" <colname:identifier> in_ "(" <exprs:Comma<Expr>> ")" ")" => TBConstraint::Check {<>},
+    foreign key "(" <colname:Comma<KeyPart>> ")" references <foreign_tb:table_name> "(" <foreign_col:Comma<KeyPart>> ")" => TBConstraint::Foreign {<>},
+};
+
+ColumnDef: Column =
+    <name:identifier> <coltype:ColumnType> <colsize:("(" <int_literal> ")")?>
+        <notnull:(not null)?> <primary:(primary key)?> <unique:(unique)?>
+        <foreign:(foreign key references <table_name> "(" <identifier> ")")?>
+        => Column {
+            name,
+            coltype,
+            colsize: colsize.map(|n| n as _),
+            notnull: notnull.is_some(),
+            primary: primary.is_some(),
+            unique: unique.is_some(),
+            foreign: foreign,
+        };
+
+ColumnType: ColumnType = {
+    int => ColumnType::Int,
+    char_ => ColumnType::Char,
+    varchar => ColumnType::Varchar,
+    float => ColumnType::Float,
+    date => ColumnType::Date,
+};
+
+ColumnRef: ColumnRef = {
+    identifier => ColumnRef::Ident(<>),
+    <table_name:table_name> "." <column:identifier> => ColumnRef::Attr {<>},
+};
+
+KeyPart = identifier;
+
+db_name = identifier;
+
+table_name = {
+    identifier,
+    quoted_table_name,
+};
